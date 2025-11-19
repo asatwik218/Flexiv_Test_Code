@@ -94,12 +94,15 @@ void StepSensingTest::performTest()
     {
         std::array<double,6> wrench = {0,0,0,0,0,0};
         
+        //loop for all combination of velocities and forces.
         for(size_t i = 0 ; i<targetVelocities_.size(); i++)
         {
+
             if (stopRequested_) {
                 std::cout << "[" << testName_ << "] Stop requested before iteration start. Exiting.\n";
                 break;
             }
+
             for (size_t j = 0; j < targetForces_.size(); ++j)
             {
             
@@ -146,7 +149,7 @@ void StepSensingTest::performTest()
                 std::cout << "[Step 4] Searching for surface contact...\n";
                 robot_->SetMaxContactWrench({0.5,0.5,0.5,0.5,0.5,0.5});
                 auto contactPose = startPose_;
-                contactPose[2] -= 5; // (keep as you originally had)
+                contactPose[2] -= 5;
                 robot_->SendCartesianMotionForce(contactPose, {}, {0,0,0,0,0,0}, 0.1);
 
                 bool is_contacted = false;

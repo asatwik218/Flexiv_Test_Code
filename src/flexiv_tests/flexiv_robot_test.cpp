@@ -78,10 +78,10 @@ void FlexivRobotTest::log(std::ostream& out){
 	flexiv::rdk::RobotStates states = robot_->states();
 
 	out
-	<< flexiv::rdk::utility::Arr2Str(states.ext_wrench_in_tcp, 3, ",")
-	<< flexiv::rdk::utility::Arr2Str(states.ext_wrench_in_world , 3, ",")
-	<< flexiv::rdk::utility::Arr2Str(states.tcp_pose , 5 , ",")
-	<< flexiv::rdk::utility::Arr2Str(states.tcp_vel , 5, ",")
+	<< flexiv::rdk::utility::Arr2Str(states.ext_wrench_in_tcp, 3, ",") << ","
+	<< flexiv::rdk::utility::Arr2Str(states.ext_wrench_in_world , 3, ",") << ","
+	<< flexiv::rdk::utility::Arr2Str(states.tcp_pose , 5 , ",") << ","
+	<< flexiv::rdk::utility::Arr2Str(states.tcp_vel , 5, ",") << ","
 	<< flexiv::rdk::utility::Arr2Str(states.ft_sensor_raw,3, ",")
 	;
 }
@@ -112,10 +112,14 @@ void FlexivRobotTest::startLogging(const std::string& filename, int intervalMs)
 
 void FlexivRobotTest::stopLogging()
 {
-    std::lock_guard<std::mutex> lk(mtx_);
+    DataLogger* loggerCopy = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        loggerCopy = logger_;
+    }
 
-    if (logger_) {
-        logger_->stop();
+    if (loggerCopy) {
+        loggerCopy->stop();
         std::cout << "[" << testName_ << "] Logging stopped.\n";
     }
     else {
@@ -152,14 +156,17 @@ TestResult FlexivRobotTest::runTest(){
 
 void FlexivRobotTest::stop()
 {
-    std::lock_guard<std::mutex> lk(mtx_);
+    {
+        // Guard state so repeated stop() calls are safe and we don't block while joining
+        std::lock_guard<std::mutex> lk(mtx_);
 
-    if (stopRequested_) {
-        std::cout << "[" << testName_ << "] Stop already requested.\n";
-        return;
+        if (stopRequested_) {
+            std::cout << "[" << testName_ << "] Stop already requested.\n";
+            return;
+        }
+
+        stopRequested_ = true;
     }
-
-    stopRequested_ = true;
 
     std::cout << "[" << testName_ << "] Stop requested.\n";
 
@@ -174,17 +181,14 @@ void FlexivRobotTest::stop()
         }
     }
 
-    // Stop logger
-    if (logger_) {
-        logger_->stop();
-    }
+    // Stop logger (re-acquires mutex internally)
+    stopLogging();
 
-	    // Wait for the thread to finish
-	    if (thread_.joinable()) {
-	        thread_.join();
-	        std::cout << "[" << testName_ << "] Test thread joined.\n";
-            testFinished_ = true;
-	    }
+    if (thread_.joinable()) {
+        thread_.join();
+        std::cout << "[" << testName_ << "] Test thread joined.\n";
+        testFinished_ = true;
+    }
 }
 
 void FlexivRobotTest::waitForCompletion()

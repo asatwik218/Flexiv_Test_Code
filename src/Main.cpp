@@ -5,7 +5,6 @@
 #include <thread>
 #include <chrono>
 #include <array>
-#include <vector>
 
 int main()
 {
@@ -25,24 +24,8 @@ int main()
 /* STEP SENSING TEST */
 
 /* VELOCITY TRACKING TEST */
-    // Choose which scenario(s) to run. Pick one or build a vector to run back-to-back.
-    bool runAll = true; // toggle to run all presets or just one
+    VelocityTrackingTest test(robotSn);
 
-    std::vector<VelocityTrackingTest::Scenario> scenarios;
-    if (runAll) {
-        scenarios.push_back(VelocityTrackingTest::MakeStaticOnce());
-        scenarios.push_back(VelocityTrackingTest::MakeStaticLoop(3.0));
-        scenarios.push_back(VelocityTrackingTest::MakeConstantSweep(0.1, 3.0));
-        scenarios.push_back(VelocityTrackingTest::MakeSineWaveZ(0.1, 0.5, 6.0, 1.0));
-    } else {
-        // Example: run only sine-wave with custom amplitude/duration
-        scenarios.push_back(VelocityTrackingTest::MakeSineWaveZ(0.05, 0.3, 8.0, 1.0));
-    }
-
-    // Choose log file name here per run
-    std::string logFile = "velocity_tracking.csv";
-
-    VelocityTrackingTest test(robotSn, std::move(scenarios), /*logIntervalMs=*/1, /*logFilename=*/logFile);
 /* VELOCITY TRACKING TEST */
 
 
@@ -58,24 +41,24 @@ int main()
 
     std::cout << "\nPress ESC to stop the test safely...\n";
 
-    // Wait for ESC key
-    while (true) {
-        if (test.isFinished()) {
-            std::cout << "\n[Main] Test completed. Exiting wait loop...\n";
-            test.waitForCompletion();
-            break;
-        }
-
-        if (_kbhit()) {
-            int key = _getch();
-            if (key == 27) { // ESC key ASCII code
-                std::cout << "\n[Main] ESC pressed. Stopping test...\n";
-                test.stop();
-                break;
+    // Separate thread monitors ESC keypress and calls stop() to interrupt the test
+    std::thread inputThread([&test]() {
+        while (!test.isFinished()) {
+            if (_kbhit()) {
+                int key = _getch();
+                if (key == 27) {
+                    std::cout << "\n[Main] ESC pressed. Stopping test...\n";
+                    test.stop();
+                    break;
+                }
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
+    });
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    test.waitForCompletion();
+    if (inputThread.joinable()) {
+        inputThread.join();
     }
 
     // Cleanup resources
