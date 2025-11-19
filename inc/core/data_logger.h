@@ -23,6 +23,8 @@ public:
 
     //set callback: what to do each log tick
     void setCallback(std::function<void(std::ostream&)> callback);
+    // optional header row written once when the file is empty
+    void setHeader(std::string header);
 
     void start();
     void stop();
@@ -41,4 +43,6 @@ private:
 
     std::mutex mtx_;
     std::function<void(std::ostream&)> callback_;
+    std::string header_;
+    bool headerWritten_{false};
 };

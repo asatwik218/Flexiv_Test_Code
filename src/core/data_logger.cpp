@@ -17,6 +17,12 @@ void DataLogger::setCallback(std::function<void(std::ostream&)> callback){
     callback_ = std::move(callback);
 }
 
+void DataLogger::setHeader(std::string header){
+    std::lock_guard<std::mutex> lk(mtx_);
+    header_ = std::move(header);
+    headerWritten_ = false;
+}
+
 void DataLogger::start(){
     if(running_)return ;
 
@@ -27,6 +33,10 @@ void DataLogger::start(){
     if(!file_.is_open()){
          file_.open(filename_);
         if(!file_.is_open()) throw std::runtime_error("Failed to open file");
+    }
+    if (file_.tellp() == 0 && !header_.empty() && !headerWritten_) {
+        file_ << header_ << "\n";
+        headerWritten_ = true;
     }
     running_ = true;
     thread_ = std::thread(&DataLogger::loggingLoop, this);

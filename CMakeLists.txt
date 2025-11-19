@@ -6,6 +6,8 @@ project(Flexiv_Test_Bed VERSION 1.0)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "CMake build type" FORCE)
 endif()
+# Export compile_commands.json for IDEs (VSCode IntelliSense)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Source and include directories
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
@@ -20,6 +22,7 @@ endif()
 
 # Find Flexiv RDK package
 find_package(flexiv_rdk REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 # ----------------------------------------------------------
 # Gather source files
@@ -35,15 +38,22 @@ set(ALL_SOURCES
   ${SRC_DIR}/Main.cpp
 )
 
-
 # ----------------------------------------------------------
 # Build the main executable
 # ----------------------------------------------------------
 add_executable(Flexiv_Test_Bed ${ALL_SOURCES})
-target_link_libraries(Flexiv_Test_Bed PRIVATE flexiv::flexiv_rdk)
+
+target_link_libraries( Flexiv_Test_Bed
+    PRIVATE
+        flexiv::rdk          # public headers depend on flexiv
+        Eigen3::Eigen 
+)
+
 # Link Windows system library only when building on Windows
 if(WIN32)
     target_link_libraries(Flexiv_Test_Bed PRIVATE winmm)
+    # Set stack reserve to 8 MiB
+    target_link_options(Flexiv_Test_Bed PRIVATE "/STACK:8388608")
 endif()
 
 # ----------------------------------------------------------

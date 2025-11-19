@@ -1,0 +1,12 @@
+[requires]
+flexiv_rdk/1.8@cynlr/stable
+eigen/3.4.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[imports]
+bin , *.dll -> ./bin
+lib, *dylib -> ./bin
+lib, *.so -> ./lib

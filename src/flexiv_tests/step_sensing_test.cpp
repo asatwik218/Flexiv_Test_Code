@@ -43,7 +43,6 @@ inline std::array<double, 3> quatToEulerZYX(const std::array<double, 4>& quat)
 	return flexiv::rdk::utility::Quat2EulerZYX(quat);
 }
 
-
 StepSensingTest::StepSensingTest(const std::string& robotSn,   
     std::array<double,6> startPos_mm_deg,
     std::array<double,6> endPos_mm_deg,
@@ -148,7 +147,7 @@ void StepSensingTest::performTest()
                 robot_->SetMaxContactWrench({0.5,0.5,0.5,0.5,0.5,0.5});
                 auto contactPose = startPose_;
                 contactPose[2] -= 5; // (keep as you originally had)
-                robot_->SendCartesianMotionForce(contactPose, {}, {}, 0.1);
+                robot_->SendCartesianMotionForce(contactPose, {}, {0,0,0,0,0,0}, 0.1);
 
                 bool is_contacted = false;
                 while (!is_contacted)
@@ -177,7 +176,7 @@ void StepSensingTest::performTest()
                 std::cout << "[Step 5] Performing test motion: applying "<< targetForces_[j] << " N @ " << targetVelocities_[i] << " m/s...\n";
 
                 robot_->SetForceControlAxis({false , false , true , false , false , false});
-                robot_->SendCartesianMotionForce(endPose_, {0,0,targetForces_[j],0,0,0}, targetVelocities_[i]);
+                robot_->SendCartesianMotionForce(endPose_, { 0,0,targetForces_[j],0,0,0 }, { 0,0,0,0,0,0 }, targetVelocities_[i]);
 
                 bool isReached = false;
                 while (!isReached)

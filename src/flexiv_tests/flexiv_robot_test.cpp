@@ -1,6 +1,7 @@
 #include "flexiv_tests/flexiv_robot_test.h"
 
 #include <flexiv/rdk/utility.hpp>
+#include <filesystem>
 #include <iostream>
 #include <thread>
 
@@ -94,10 +95,19 @@ void FlexivRobotTest::startLogging(const std::string& filename, int intervalMs)
         logger_->setCallback([this](std::ostream& out) { this->log(out); });
     }
 
-    logger_->configure(filename, intervalMs);
+    // Build logs/<TestName>/<filename> relative to current working dir and ensure it exists
+    std::filesystem::path logDir = std::filesystem::current_path() / "logs" / testName_;
+    std::error_code ec;
+    std::filesystem::create_directories(logDir, ec);
+    if (ec) {
+        throw std::runtime_error("Failed to create log directory: " + ec.message());
+    }
+    std::filesystem::path fullPath = logDir / filename;
+
+    logger_->configure(fullPath.string(), intervalMs);
     logger_->start();
 
-    std::cout << "[" << testName_ << "] Logging started: " << filename << "\n";
+    std::cout << "[" << testName_ << "] Logging started: " << fullPath.string() << "\n";
 }
 
 void FlexivRobotTest::stopLogging()
@@ -120,6 +130,7 @@ TestResult FlexivRobotTest::runTest(){
 	}
 
 	stopRequested_ = false;
+    testFinished_ = false;
 
 	//launch test code
 	thread_ = std::thread([this](){
@@ -132,6 +143,7 @@ TestResult FlexivRobotTest::runTest(){
 
 		if(logger_) logger_->stop();
 		std::cout << "[" << testName_ << "] Test thread finished.\n";
+        testFinished_ = true;
 	});
 
 	return {true, "Test started asynchronously"};
@@ -167,9 +179,18 @@ void FlexivRobotTest::stop()
         logger_->stop();
     }
 
-    // Wait for the thread to finish
+	    // Wait for the thread to finish
+	    if (thread_.joinable()) {
+	        thread_.join();
+	        std::cout << "[" << testName_ << "] Test thread joined.\n";
+            testFinished_ = true;
+	    }
+}
+
+void FlexivRobotTest::waitForCompletion()
+{
     if (thread_.joinable()) {
         thread_.join();
-        std::cout << "[" << testName_ << "] Test thread joined.\n";
+        testFinished_ = true;
     }
 }
