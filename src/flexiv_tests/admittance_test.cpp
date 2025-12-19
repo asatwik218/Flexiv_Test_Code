@@ -21,17 +21,13 @@ AdmittanceTest::AdmittanceTest(
       m_pos_m(pos_m),
       m_pos_k(pos_k)
 {
-    // compute damping (critical damping)
+    // Compute damping (critical damping)
     m_pos_d = 2.0 * std::sqrt(m_pos_m * m_pos_k);
 
-    // build diagonal mass/stiffness/damping matrices
-    Eigen::Matrix3d M = Eigen::Vector3d(m_pos_m, m_pos_m, m_pos_m).asDiagonal().toDenseMatrix();
-    Eigen::Matrix3d K = Eigen::Vector3d(m_pos_k, m_pos_k, m_pos_k).asDiagonal().toDenseMatrix();
-    Eigen::Matrix3d D = Eigen::Vector3d(m_pos_d, m_pos_d, m_pos_d).asDiagonal().toDenseMatrix();
-
-    m_gainsPos_ee["K"] = K;
-    m_gainsPos_ee["D"] = D;
-    m_gainsPos_ee["InvM"] = M.inverse(); // diagonal -> safe
+    // Build diagonal mass/stiffness/damping matrices (direct initialization)
+    m_K = Eigen::Vector3d(m_pos_k, m_pos_k, m_pos_k).asDiagonal();
+    m_D = Eigen::Vector3d(m_pos_d, m_pos_d, m_pos_d).asDiagonal();
+    m_InvM = Eigen::Vector3d(1.0/m_pos_m, 1.0/m_pos_m, 1.0/m_pos_m).asDiagonal();
 
     // pack force thresholds
     m_high_end = Eigen::Vector3d(high_end[0], high_end[1], high_end[2]);
@@ -78,38 +74,23 @@ inline Eigen::Vector3d AdmittanceTest::applySmoothSaturation(const Eigen::Vector
 
 Eigen::Vector3d AdmittanceTest::generateMotionDynamics(
     const Eigen::Vector3d& cur_position,
-    const Eigen::Vector3d& des_position,
     const Eigen::Vector3d& cur_lin_vel_ee,
     const Eigen::Vector3d& adm_force_ee,
-    const std::map<std::string, Eigen::Matrix3d>& gainsPos_ee,
-    double dt,
-    bool is_second_order,
-    bool is_admittance,
-    double MAX_LIN_VEL)
+    double dt) const
 {
-    Eigen::Vector3d pos_error = cur_position - des_position;
+    // Use member variables directly
+    const Eigen::Vector3d pos_error = cur_position - m_desiredPosition;
+    const double transmit_wrench = m_isAdmittance ? 1.0 : 0.0;
 
-    Eigen::Vector3d des_velocity_lin = Eigen::Vector3d::Zero();
-    Eigen::Vector3d des_acceleration_lin = Eigen::Vector3d::Zero();
+    // Second-order dynamics (mass-spring-damper) - direct matrix access, no map lookup
+    const Eigen::Vector3d stiffness_force = m_K * pos_error;
+    const Eigen::Vector3d equival_des_lin_vel = -m_D.inverse() * (stiffness_force - transmit_wrench * adm_force_ee);
+    const Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, 0.1);
+    const Eigen::Vector3d equival_damping_force = m_D * (cur_lin_vel_ee - sat_equival_des_lin_vel);
+    const Eigen::Vector3d des_acceleration_lin = -m_InvM * equival_damping_force;
+    const Eigen::Vector3d des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
 
-    double transmit_wrench = is_admittance ? 1.0 : 0.0;
-
-    if (is_second_order) {
-        Eigen::Vector3d stiffness_force  = gainsPos_ee.at("K") * pos_error;
-        Eigen::Vector3d equival_des_lin_vel = -gainsPos_ee.at("D").inverse() * (stiffness_force  - transmit_wrench * adm_force_ee);
-        Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, MAX_LIN_VEL);
-        Eigen::Vector3d equival_damping_force = gainsPos_ee.at("D") * (cur_lin_vel_ee - sat_equival_des_lin_vel);
-        des_acceleration_lin = -gainsPos_ee.at("InvM") * equival_damping_force;
-        des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
-    } else {
-        Eigen::Matrix3d InvM_posK = gainsPos_ee.at("InvM") * gainsPos_ee.at("K");
-        Eigen::Vector3d K_pos_diag = InvM_posK.diagonal().cwiseSqrt();
-        Eigen::Matrix3d K_pos_1st_order = K_pos_diag.asDiagonal();
-        des_velocity_lin = -K_pos_1st_order * (pos_error - transmit_wrench * (gainsPos_ee.at("K").inverse() * adm_force_ee));
-    }
-    Eigen::Vector3d des_sat_vel_lin = applySmoothSaturation(des_velocity_lin, MAX_LIN_VEL);
-
-    return des_sat_vel_lin;
+    return applySmoothSaturation(des_velocity_lin, m_maxLinearVel);
 }
 
 // -------------------- moveToStartingPose -------------------- //
@@ -164,10 +145,12 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
 
         // Initialize pose and velocity
         std::array<double, 7> target_pose = states.tcp_pose;
+        std::array<double,7> initial_pose = target_pose;
 
-        m_currentVelocity.x() = states.tcp_vel[0];
-        m_currentVelocity.y() = states.tcp_vel[1];
-        m_currentVelocity.z() = states.tcp_vel[2];
+        // Timing statistics
+        double max_loop_time = 0.0;
+        double sum_loop_time = 0.0;
+        uint64_t loop_count = 0;
 
         std::cout << "[AdmittanceTest] Control loop active.\n";
 
@@ -187,38 +170,33 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
 
             Eigen::Vector3d currentPosition(states.tcp_pose[0], states.tcp_pose[1], states.tcp_pose[2]);
 
-            Eigen::Vector3d measuredForce(-states.ext_wrench_in_tcp[0],-states.ext_wrench_in_tcp[1],-states.ext_wrench_in_tcp[2]);
+            Eigen::Vector3d m_currentVelocity(states.tcp_vel[0], states.tcp_vel[1], states.tcp_vel[2]);
 
-            // Apply smooth deadzone to eliminate sensor noise
+            Eigen::Vector3d measuredForce(-states.ext_wrench_in_tcp[0],states.ext_wrench_in_tcp[1], -states.ext_wrench_in_tcp[2]);
+
             Eigen::Vector3d admittanceForce = applySmoothDeadZone3(measuredForce, m_low_end, m_high_end, m_switchingGain);
 
             // Compute desired velocity using admittance dynamics
             Eigen::Vector3d desiredVel = generateMotionDynamics(
                 currentPosition,
-                m_desiredPosition,
-                Eigen::Vector3d(states.tcp_vel[0], states.tcp_vel[1], states.tcp_vel[2]),
+                m_currentVelocity,
                 admittanceForce,
-                m_gainsPos_ee,
-                controlTimestep,
-                true,              // isSecondOrder
-                m_isAdmittance,    // isAdmittance
-                m_maxLinearVel);
+                controlTimestep);
 
-            // Update internal velocity state
-            m_currentVelocity = desiredVel;
 
-            // Integrate velocity to get target position (Euler)
-            Eigen::Vector3d nextPosition = currentPosition + desiredVel * controlTimestep;
+            // Integrate velocity from previous commanded target (not current measured position)
+            Eigen::Vector3d previousTarget(target_pose[0], target_pose[1], target_pose[2]);
+            Eigen::Vector3d nextPosition = previousTarget + desiredVel * controlTimestep;
 
             target_pose[0] = nextPosition.x();
             target_pose[1] = nextPosition.y();
             target_pose[2] = nextPosition.z();
 
             // Keep orientation unchanged (qw, qx, qy, qz)
-            target_pose[3] = states.tcp_pose[3];
-            target_pose[4] = states.tcp_pose[4];
-            target_pose[5] = states.tcp_pose[5];
-            target_pose[6] = states.tcp_pose[6];
+            target_pose[3] = initial_pose[3];
+            target_pose[4] = initial_pose[4];
+            target_pose[5] = initial_pose[5];
+            target_pose[6] = initial_pose[6];
 
             // Send command to robot with high limits to avoid built-in interference
             robot_->SendCartesianMotionForce(
@@ -234,11 +212,28 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             setCommandedTcpPose(target_pose);
             setCommandedTcpVel({desiredVel.x(), desiredVel.y(), desiredVel.z(), 0.0, 0.0, 0.0});
 
+            // Measure iteration time (before sleep)
+            auto iteration_end = std::chrono::steady_clock::now();
+            double iteration_time_ms = std::chrono::duration<double, std::milli>(iteration_end - now).count();
+
+            sum_loop_time += iteration_time_ms;
+            if (iteration_time_ms > max_loop_time) {
+                max_loop_time = iteration_time_ms;
+            }
+            loop_count++;
+
             // wait until next cycle
             std::this_thread::sleep_until(next_tick);
         }
 
+        // Print timing statistics
+        double avg_loop_time = (loop_count > 0) ? (sum_loop_time / loop_count) : 0.0;
         std::cout << "[AdmittanceTest] Control loop completed\n";
+        std::cout << "[AdmittanceTest] Loop timing statistics:\n";
+        std::cout << "  Total iterations: " << loop_count << "\n";
+        std::cout << "  Average iteration time: " << avg_loop_time << " ms\n";
+        std::cout << "  Max iteration time: " << max_loop_time << " ms\n";
+        std::cout << "  Target interval: " << streamIntervalMs << " ms\n";
     }
     catch (const std::exception& e) {
         std::cerr << "[AdmittanceTest] Error in control loop: " << e.what() << "\n";
@@ -266,7 +261,7 @@ void AdmittanceTest::performTest()
             LogField::CMD_TCP_VEL       // Commanded TCP velocity (6 values)
         };
 
-        std::vector<uint16_t> intervals = { 25, 50, 75, 100};
+        std::vector<uint16_t> intervals = { 5, 25, 50, 75, 100};
 
         auto runPhase = [&](uint16_t intervalMs) -> bool {
             if (stopRequested_) return false;

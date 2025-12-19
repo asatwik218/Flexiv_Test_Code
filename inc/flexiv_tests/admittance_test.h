@@ -3,7 +3,6 @@
 #include "flexiv_tests/flexiv_robot_test.h"
 #include <Eigen/Dense>
 #include <array>
-#include <map>
 #include <string>
 #include <vector>
 #include <thread>
@@ -51,16 +50,11 @@ private:
         const Eigen::Vector3d& input,
         double max_limit);
 
-    static Eigen::Vector3d generateMotionDynamics(
+    Eigen::Vector3d generateMotionDynamics(
         const Eigen::Vector3d& cur_position,
-        const Eigen::Vector3d& des_position,
         const Eigen::Vector3d& cur_lin_vel_ee,
         const Eigen::Vector3d& adm_force_ee,
-        const std::map<std::string, Eigen::Matrix3d>& gainsPos_ee,
-        double dt,
-        bool is_second_order,
-        bool is_admittance,
-        double MAX_LIN_VEL);
+        double dt) const;
 
 private:
     // Member variables (m_ prefix)
@@ -75,8 +69,10 @@ private:
     double m_pos_k = 50.0;
     double m_pos_d = 0.0;
 
-    // Packed gains (Eigen matrices)
-    std::map<std::string, Eigen::Matrix3d> m_gainsPos_ee;
+    // Gain matrices (direct members instead of map for better performance)
+    Eigen::Matrix3d m_K;      // Stiffness matrix
+    Eigen::Matrix3d m_D;      // Damping matrix
+    Eigen::Matrix3d m_InvM;   // Inverse mass matrix
 
     // Admittance force thresholds (Eigen vectors)
     Eigen::Vector3d m_high_end = Eigen::Vector3d::Zero();

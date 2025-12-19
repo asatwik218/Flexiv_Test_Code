@@ -35,7 +35,7 @@ int main()
 /* VELOCITY TRACKING TEST */
 
 /* POSITION STREAMING TEST */
-    PositionStreamingTest test(robotSn, {-690, -434, 80 , -0.58 , -179 , -0.30} );
+    // PositionStreamingTest test(robotSn, {-690, -434, 80 , -0.58 , -179 , -0.30} );
 
 /* POSITION STREAMING TEST */
 
@@ -67,20 +67,20 @@ int main()
 /* ADMITTANCE TEST */
 
     //Example with custom parameters:
-    // double pos_m = 1.0;                                      // Virtual mass [kg]
-    // double pos_k = 50.0;                                     // Stiffness [N/m]   
-    // const std::array<double,3> high_end ={1.0, 1.0, 1.0};    // High force threshold [N]
-    // bool isAdmittance = true;                                // Enable force feedback
-    // uint16_t testDuration = 500;                             // Test duration [s] per interval
-    // AdmittanceTest test(robotSn,
-    //                     isAdmittance,
-    //                     testDuration,
-    //                     std::array<double,6>{-221,-576,90, 0.0, 180.0, 0.0},
-    //                     std::array<double,6>{-221, -576, 600, 0.0, 180.0, 0.0},
-    //                     pos_m,
-    //                     pos_k,
-    //                     high_end
-    //                 );
+    double pos_m = 1.0;                                      // Virtual mass [kg]
+    double pos_k = 50.0;                                     // Stiffness [N/m]   
+    const std::array<double,3> high_end ={1, 1, 1};        // High force threshold [N]
+    bool isAdmittance = true;                                // Enable force feedback
+    uint16_t testDuration = 60;                             // Test duration [s] per interval
+    AdmittanceTest test(robotSn,
+                        isAdmittance,
+                        testDuration,
+                        std::array<double,6>{-221,-576,90, 0.0, 180.0, 0.0},
+                        std::array<double,6>{-221, -576, 250, 0.0, 180.0, 0.0},
+                        pos_m,
+                        pos_k,
+                        high_end
+                    );
 
 /* ADMITTANCE TEST */
 

@@ -4,6 +4,7 @@ build_*/
 build_ninja/
 out/
 cmake-build-*/
+.claude/*
 
 # Conan files
 conan-files/
