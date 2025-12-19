@@ -38,6 +38,10 @@ void DataLogger::start(){
         file_ << header_ << "\n";
         headerWritten_ = true;
     }
+
+    // Reset the start time to now - this makes timestamps start at 0
+    startTime_ = std::chrono::high_resolution_clock::now();
+
     running_ = true;
     thread_ = std::thread(&DataLogger::loggingLoop, this);
 }
@@ -66,10 +70,13 @@ void DataLogger::loggingLoop(){
     while(running_){
         nextTick += std::chrono::milliseconds(intervalMs_);
 
-        auto ts = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        // Calculate time elapsed since start() was called in milliseconds
+        auto now = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime_).count();
+
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            file_ << ts << ",";
+            file_ << elapsed << ",";
             if(callback_) callback_(file_);
             file_<<"\n";
         }

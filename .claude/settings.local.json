@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(cmake --build:*)",
+      "Bash(Select-String -Pattern \"error|warning|Built target|Compiling\")",
+      "Bash(Select-Object -Last 30)",
+      "Bash(head:*)",
+      "Bash(python:*)",
+      "Bash(if not exist raw_data mkdir raw_data)",
+      "Bash(move *.csv raw_data )",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

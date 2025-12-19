@@ -1,5 +1,11 @@
 #include "flexiv_tests/step_sensing_test.h"
 #include "flexiv_tests/velocity_tracking_test.h"
+#include "flexiv_tests/position_streaming_test.h"
+#include "flexiv_tests/path_repeatability_test.h"
+#include "flexiv_tests/response_time_test.h"
+#include "flexiv_tests/payload_test.h"
+#include "flexiv_tests/simple_logging_test.h"
+#include "flexiv_tests/admittance_test.h"
 #include <iostream>
 #include <conio.h>
 #include <thread>
@@ -8,25 +14,75 @@
 
 int main()
 {
-    std::cout << "===== Flexiv Velocity Tracking Test =====\n";
+    std::cout << "===== Flexiv Payload Test =====\n";
 
     // Example robot serial number
-    std::string robotSn = "Rizon10s-062287";  
+    std::string robotSn = "Rizon4s-063157";
 
 /* STEP SENSING TEST (example, currently not used) */
-    
-    // std::array<double,6> startPos = {300, 0, 500, 0, 0, 0};  // mm, deg
-    // std::array<double,6> endPos   = {300, 0, 480, 0, 0, 0};  // mm, deg
-    // std::vector<double> targetForces = {5.0, 10.0};          // N
-    // std::vector<double> targetVels   = {0.01, 0.02};         // m/s
+
+    // std::array<double,6> startPos = {141,-685,0,0,180,0};  // mm, deg
+    // std::array<double,6> endPos   = {-132, -685, 70, 0, 180, 0};  // mm, deg
+    // std::vector<double> targetForces = {1.0};          // N
+    // std::vector<double> targetVels   = {0.05};         // m/s
     // StepSensingTest test(robotSn, startPos, endPos, targetForces, targetVels);
 
 /* STEP SENSING TEST */
 
 /* VELOCITY TRACKING TEST */
-    VelocityTrackingTest test(robotSn);
+    // VelocityTrackingTest test(robotSn);
 
 /* VELOCITY TRACKING TEST */
+
+/* POSITION STREAMING TEST */
+    PositionStreamingTest test(robotSn, {-690, -434, 80 , -0.58 , -179 , -0.30} );
+
+/* POSITION STREAMING TEST */
+
+/* PATH REPEATABILITY TEST */
+    // PathRepeatabilityTest test(robotSn);
+
+/* PATH REPEATABILITY TEST */
+
+/* RESPONSE TIME TEST */
+    // ResponseTimeTest test(robotSn);
+
+/* RESPONSE TIME TEST */
+
+/* CONTINUOUS LOGGING TEST */
+    // ContinuousLoggingTest test(robotSn);
+
+/* CONTINUOUS LOGGING TEST */
+
+/* PAYLOAD TEST */
+    // PayloadTest test(robotSn);
+
+/* PAYLOAD TEST */
+
+/* SIMPLE LOGGING TEST */
+    // SimpleLoggingTest test(robotSn);
+
+/* SIMPLE LOGGING TEST */
+
+/* ADMITTANCE TEST */
+
+    //Example with custom parameters:
+    // double pos_m = 1.0;                                      // Virtual mass [kg]
+    // double pos_k = 50.0;                                     // Stiffness [N/m]   
+    // const std::array<double,3> high_end ={1.0, 1.0, 1.0};    // High force threshold [N]
+    // bool isAdmittance = true;                                // Enable force feedback
+    // uint16_t testDuration = 500;                             // Test duration [s] per interval
+    // AdmittanceTest test(robotSn,
+    //                     isAdmittance,
+    //                     testDuration,
+    //                     std::array<double,6>{-221,-576,90, 0.0, 180.0, 0.0},
+    //                     std::array<double,6>{-221, -576, 600, 0.0, 180.0, 0.0},
+    //                     pos_m,
+    //                     pos_k,
+    //                     high_end
+    //                 );
+
+/* ADMITTANCE TEST */
 
 
     // Initialize robot

@@ -45,4 +45,5 @@ private:
     std::function<void(std::ostream&)> callback_;
     std::string header_;
     bool headerWritten_{false};
+    std::chrono::high_resolution_clock::time_point startTime_;
 };

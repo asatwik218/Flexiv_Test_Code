@@ -12,7 +12,6 @@
     #include <Windows.h>
 #endif
 
-
 VelocityTrackingTest::VelocityTrackingTest(const std::string& robotSn):FlexivRobotTest("VelocityTrackingTest",robotSn){}
 
 void VelocityTrackingTest::singleStaticTestWithWait(uint16_t waitInterval){

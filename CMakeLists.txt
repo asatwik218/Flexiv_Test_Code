@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.16.3)
 
+# Load Conan toolchain if available
+if(EXISTS "${CMAKE_SOURCE_DIR}/conan-files/conan_toolchain.cmake")
+  include("${CMAKE_SOURCE_DIR}/conan-files/conan_toolchain.cmake")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/generators/conan_toolchain.cmake")
+  include("${CMAKE_BINARY_DIR}/generators/conan_toolchain.cmake")
+endif()
+
 project(Flexiv_Test_Bed VERSION 1.0)
 
 # Configure build type

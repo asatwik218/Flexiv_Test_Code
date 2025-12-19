@@ -22,4 +22,6 @@ private:
     std::vector<double> targetForces_;
     std::vector<double> targetVelocities_;
 
+    bool isMotionComplete(const std::array<double,7> targetPose_m_quat );
+
 };
