@@ -69,9 +69,12 @@ int main()
     //Example with custom parameters:
     double pos_m = 1.0;                                      // Virtual mass [kg]
     double pos_k = 50.0;                                     // Stiffness [N/m]   
+    double ori_m = 1.0;                                      // Virtual mass [kg]
+    double ori_k = 50.0;                                     // Stiffness [N/m]   
     const std::array<double,3> high_end ={1, 1, 1};        // High force threshold [N]
+    const std::array<double,3> high_end_torque ={0.2, 0.2, 0.2};        // High torque threshold [N/m]
     bool isAdmittance = true;                                // Enable force feedback
-    uint16_t testDuration = 60;                             // Test duration [s] per interval
+    uint16_t testDuration = 120;                             // Test duration [s] per interval
     AdmittanceTest test(robotSn,
                         isAdmittance,
                         testDuration,
@@ -79,7 +82,10 @@ int main()
                         std::array<double,6>{-221, -576, 250, 0.0, 180.0, 0.0},
                         pos_m,
                         pos_k,
-                        high_end
+                        ori_m,
+                        ori_k,
+                        high_end,
+                        high_end_torque
                     );
 
 /* ADMITTANCE TEST */

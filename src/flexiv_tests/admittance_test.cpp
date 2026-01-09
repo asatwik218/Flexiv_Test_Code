@@ -12,28 +12,44 @@ AdmittanceTest::AdmittanceTest(
     const std::array<double, 6>& endPose_mm_deg,
     double pos_m,
     double pos_k,
-    const std::array<double, 3>& high_end)
-    : FlexivRobotTest("AdmittanceTest", robotSn),
+    double ori_m,
+    double ori_k,
+    const std::array<double, 3>& high_end,
+    const std::array<double, 3>& high_end_torque
+): FlexivRobotTest("AdmittanceTest", robotSn),
       m_startingPose_mm_deg(startingPose_mm_deg),
       m_endPose_mm_deg(endPose_mm_deg),
       m_isAdmittance(isAdmittance),
       m_testDuration(testDuration),
       m_pos_m(pos_m),
-      m_pos_k(pos_k)
+      m_pos_k(pos_k),
+      m_ori_m(ori_m),
+      m_ori_k(ori_k)
 {
     // Compute damping (critical damping)
     m_pos_d = 2.0 * std::sqrt(m_pos_m * m_pos_k);
+    m_ori_d = 2.0 * std::sqrt(m_ori_m * m_ori_k);
 
     // Build diagonal mass/stiffness/damping matrices (direct initialization)
     m_K = Eigen::Vector3d(m_pos_k, m_pos_k, m_pos_k).asDiagonal();
     m_D = Eigen::Vector3d(m_pos_d, m_pos_d, m_pos_d).asDiagonal();
     m_InvM = Eigen::Vector3d(1.0/m_pos_m, 1.0/m_pos_m, 1.0/m_pos_m).asDiagonal();
 
+    m_K_orientation = Eigen::Vector3d(m_ori_k, m_ori_k, m_ori_k).asDiagonal();
+    m_D_orientation = Eigen::Vector3d(m_ori_d, m_ori_d, m_ori_d).asDiagonal();
+    m_InvM_orientation = Eigen::Vector3d(1.0/m_ori_m, 1.0/m_ori_m, 1.0/m_ori_m).asDiagonal();
+
     // pack force thresholds
     m_high_end = Eigen::Vector3d(high_end[0], high_end[1], high_end[2]);
     m_low_end = -m_high_end;
+    // pack torque thresholds
+    m_high_end_torque = Eigen::Vector3d(high_end_torque[0], high_end_torque[1], high_end_torque[2]);
+    m_low_end_torque = -m_high_end_torque;
 
-    m_desiredPosition = Eigen::Vector3d(mmToM(endPose_mm_deg[0]), mmToM(endPose_mm_deg[1]), mmToM(endPose_mm_deg[2]) );
+    std::array<double, 7> pose_m_quat = convertPose_mmDeg_to_mQuat(endPose_mm_deg);
+    m_desiredPosition = Eigen::Vector3d( pose_m_quat[0],pose_m_quat[1],pose_m_quat[2] );
+    m_desiredOrientation = Eigen::Vector4d( pose_m_quat[3],pose_m_quat[4],pose_m_quat[5],pose_m_quat[6] );
+   
 }
 
 // -------------------- Helper functions -------------------- //
@@ -43,6 +59,12 @@ inline Eigen::Vector3d AdmittanceTest::applySmoothDeadZone3(
     const Eigen::Vector3d& high_end,
     double sw_gn)
 {
+    // Apply smooth dead-zone to a 3x1 signal vector.
+    // input_s : signal (3x1)
+    // low_end : low threshold per component (3x1)
+    // high_end: high threshold per component (3x1)
+    // sw_gn   : switching gain (default 100.0), higher -> sharper transition
+
     Eigen::Vector3d output;
     for (int i = 0; i < 3; ++i)
     {
@@ -72,25 +94,205 @@ inline Eigen::Vector3d AdmittanceTest::applySmoothSaturation(const Eigen::Vector
     return direction * saturated_norm;
 }
 
+inline Eigen::Vector4d quat_conj(const Eigen::Vector4d& q) {
+    Eigen::Vector4d qc;
+    qc << q(0), -q(1), -q(2), -q(3);
+    return qc;
+}
+
+inline Eigen::Vector4d quat_mul(const Eigen::Vector4d& q1, const Eigen::Vector4d& q2) {
+    const double w1 = q1(0), x1 = q1(1), y1 = q1(2), z1 = q1(3);
+    const double w2 = q2(0), x2 = q2(1), y2 = q2(2), z2 = q2(3);
+
+    Eigen::Vector4d out;
+    out <<  w1*w2 - x1*x2 - y1*y2 - z1*z2,
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2;
+    return out;
+}
+
+inline Eigen::Vector4d quat_normalize(const Eigen::Vector4d& q, double eps = 1e-12) {
+    const double n = q.norm(); // sqrt(sum(q_i^2))
+    if (n < eps) {
+        // throw std::runtime_error("quat_normalize: norm is too small (near-zero quaternion).");
+        return Eigen::Vector4d(1.0, 0.0, 0.0, 0.0);
+    }
+    else{
+        return q / n;
+    }
+}
+
+inline Eigen::Vector3d ori_error_from_quat(const Eigen::Vector4d& cur_orientation, const Eigen::Vector4d& des_orientation) {
+    Eigen::Vector4d quat_error = quat_mul(quat_conj(des_orientation), cur_orientation);
+    quat_error = quat_normalize(quat_error);
+    if (quat_error[0] < 0.0) {
+        quat_error = -quat_error;
+    }
+    return 2.0 * quat_error.tail<3>();
+}
+
+inline Eigen::Vector4d update_orientation_dynamics(const Eigen::Vector4d& q_in, const Eigen::Vector3d& omega) {
+    const Eigen::Vector4d q = quat_normalize(q_in);
+
+    // Quaternion convention: q = [w, x, y, z] where q(0)=w, q(1)=x, q(2)=y, q(3)=z
+    const double qw = q(0), qx = q(1), qy = q(2), qz = q(3);
+    const double wx = omega(0), wy = omega(1), wz = omega(2);
+
+    // Quaternion derivative: q_dot = 0.5 * q ⊗ [0; omega]
+    // For q = [w, x, y, z] and omega = [wx, wy, wz]:
+    // q_dot = 0.5 * [-x*wx - y*wy - z*wz,
+    //                 w*wx + y*wz - z*wy,
+    //                 w*wy - x*wz + z*wx,
+    //                 w*wz + x*wy - y*wx]
+    Eigen::Vector4d q_dot;
+    q_dot << -qx*wx - qy*wy - qz*wz,
+              qw*wx + qy*wz - qz*wy,
+              qw*wy - qx*wz + qz*wx,
+              qw*wz + qx*wy - qy*wx;
+
+    return 0.5 * q_dot;
+}
+
+/**
+ * Integrate quaternion dynamics.
+ * dt: timestep
+ * q:  (4x1) quaternion [w,x,y,z] (scalar-first convention)
+ * omega: (3x1) angular velocity (assumed constant over dt, matching Python)
+ * use_RK4: if false -> Euler; if true -> RK4
+ * returns: (4x1) normalized quaternion [w,x,y,z]
+ */
+inline Eigen::Vector4d integrate_orientation_dynamics(  double dt,
+                                                        const Eigen::Vector4d& q,
+                                                        const Eigen::Vector3d& omega,
+                                                        bool use_RK4 = false) {
+    Eigen::Vector4d q_out;
+
+    if (!use_RK4) {
+        q_out = q + update_orientation_dynamics(q, omega) * dt;
+    } else {
+        const Eigen::Vector4d k1 = update_orientation_dynamics(q, omega);
+        const Eigen::Vector4d k2 = update_orientation_dynamics(q + 0.5 * k1 * dt, omega);
+        const Eigen::Vector4d k3 = update_orientation_dynamics(q + 0.5 * k2 * dt, omega);
+        const Eigen::Vector4d k4 = update_orientation_dynamics(q +       k3 * dt, omega);
+
+        // q_out = q + (1.0 / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4) * dt;
+        q_out = q + 0.166666666666 * (k1 + 2.0 * k2 + 2.0 * k3 + k4) * dt;
+    }
+
+    return quat_normalize(q_out);
+}
+
+inline Eigen::Quaterniond eulerZYX_to_quat(double yaw, double pitch, double roll)
+{
+    Eigen::AngleAxisd yawAA  (yaw,   Eigen::Vector3d::UnitZ());
+    Eigen::AngleAxisd pitchAA(pitch, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd rollAA (roll,  Eigen::Vector3d::UnitX());
+
+    Eigen::Quaterniond q = yawAA * pitchAA * rollAA;  // Rz * Ry * Rx
+    q.normalize();
+    return q;
+}
+
+
+
 Eigen::Vector3d AdmittanceTest::generateMotionDynamics(
     const Eigen::Vector3d& cur_position,
     const Eigen::Vector3d& cur_lin_vel_ee,
     const Eigen::Vector3d& adm_force_ee,
-    double dt) const
+    double dt,
+    bool is_second_order) const
 {
     // Use member variables directly
     const Eigen::Vector3d pos_error = cur_position - m_desiredPosition;
     const double transmit_wrench = m_isAdmittance ? 1.0 : 0.0;
+    
+    Eigen::Vector3d des_velocity_lin = Eigen::Vector3d::Zero();
+    Eigen::Vector3d des_acceleration_lin = Eigen::Vector3d::Zero();
 
-    // Second-order dynamics (mass-spring-damper) - direct matrix access, no map lookup
-    const Eigen::Vector3d stiffness_force = m_K * pos_error;
-    const Eigen::Vector3d equival_des_lin_vel = -m_D.inverse() * (stiffness_force - transmit_wrench * adm_force_ee);
-    const Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, 0.1);
-    const Eigen::Vector3d equival_damping_force = m_D * (cur_lin_vel_ee - sat_equival_des_lin_vel);
-    const Eigen::Vector3d des_acceleration_lin = -m_InvM * equival_damping_force;
-    const Eigen::Vector3d des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
-
+    if (is_second_order) {
+        // Second-order dynamics (mass-spring-damper) - direct matrix access, no map lookup
+        const Eigen::Vector3d stiffness_force = m_K * pos_error;
+        const Eigen::Vector3d equival_des_lin_vel = -m_D.inverse() * (stiffness_force - transmit_wrench * adm_force_ee);
+        const Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, m_maxLinearVel);
+        const Eigen::Vector3d equival_damping_force = m_D * (cur_lin_vel_ee - sat_equival_des_lin_vel);
+        const Eigen::Vector3d des_acceleration_lin = -m_InvM * equival_damping_force;
+        des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
+    }else {
+        // Get the 1st order gains from the 2nd order gains
+        Eigen::Matrix3d InvM_posK = m_InvM * m_K;
+        Eigen::Vector3d K_pos_diag = InvM_posK.diagonal().cwiseSqrt();
+        Eigen::Matrix3d K_pos_1st_order = K_pos_diag.asDiagonal();
+        // Compute desired velocity
+        des_velocity_lin = -K_pos_1st_order * (pos_error - transmit_wrench * (m_K.inverse() * adm_force_ee));
+    }
     return applySmoothSaturation(des_velocity_lin, m_maxLinearVel);
+}
+
+Eigen::Matrix<double, 6, 1> AdmittanceTest::generateFullMotionDynamics(
+        const Eigen::Vector3d& cur_position,
+        const Eigen::Vector4d& cur_orientation,
+        const Eigen::Vector3d& cur_lin_vel_ee,
+        const Eigen::Vector3d& cur_ang_vel_ee,
+        const Eigen::Vector3d& adm_force_ee,
+        const Eigen::Vector3d& adm_torque_ee,
+        double dt,
+        bool is_second_order,
+        double MAX_LIN_VEL,
+        double MAX_ANG_VEL
+    ) const {
+
+    Eigen::Vector3d pos_error = cur_position - m_desiredPosition;
+    Eigen::Vector3d ori_error = ori_error_from_quat(cur_orientation, m_desiredOrientation);
+
+    double transmit_wrench = m_isAdmittance ? 1.0 : 0.0;
+
+    Eigen::Vector3d des_velocity_lin     = Eigen::Vector3d::Zero();
+    Eigen::Vector3d des_acceleration_lin = Eigen::Vector3d::Zero();
+    Eigen::Vector3d des_velocity_ang     = Eigen::Vector3d::Zero();
+    Eigen::Vector3d des_acceleration_ang = Eigen::Vector3d::Zero();
+
+    if (is_second_order) {
+        // Compute stiffness force and moment
+        Eigen::Vector3d stiffness_force  = m_K * pos_error;
+        Eigen::Vector3d stiffness_torque = m_K_orientation * ori_error;
+        // Compute equivalent desired velocity (when looking at the 2nd order admittance as a velocity following dynamics)
+        Eigen::Vector3d equival_des_lin_vel = -m_D.inverse() * (stiffness_force  - transmit_wrench * adm_force_ee);
+        Eigen::Vector3d equival_des_ang_vel = -m_D_orientation.inverse() * (stiffness_torque - transmit_wrench * adm_torque_ee);
+        // Apply velocity limits to yield acceleration that is consistent with the velocity limits
+        Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, MAX_LIN_VEL);
+        Eigen::Vector3d sat_equival_des_ang_vel = applySmoothSaturation(equival_des_ang_vel, MAX_ANG_VEL);
+        // Compute the equivalent damping force and moment
+        Eigen::Vector3d equival_damping_force  = m_D * (cur_lin_vel_ee - sat_equival_des_lin_vel);
+        Eigen::Vector3d equival_damping_torque = m_D_orientation * (cur_ang_vel_ee - sat_equival_des_ang_vel);
+        // Compute desired acceleration
+        des_acceleration_lin = -m_InvM * equival_damping_force;
+        des_acceleration_ang = -m_InvM_orientation * equival_damping_torque;
+        // Compute desired velocity
+        des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
+        des_velocity_ang = cur_ang_vel_ee + des_acceleration_ang * dt;
+    } else {
+        // Get the 1st order gains from the 2nd order gains
+        Eigen::Matrix3d InvM_posK = m_InvM *  m_K;
+        Eigen::Matrix3d InvM_oriK = m_InvM_orientation *  m_K_orientation;
+
+        Eigen::Vector3d K_pos_diag = InvM_posK.diagonal().cwiseSqrt();
+        Eigen::Matrix3d K_pos_1st_order = K_pos_diag.asDiagonal();
+        Eigen::Vector3d K_ori_diag = InvM_oriK.diagonal().cwiseSqrt();
+        Eigen::Matrix3d K_ori_1st_order = K_ori_diag.asDiagonal();
+        // Compute desired velocity
+        des_velocity_lin = -K_pos_1st_order * (pos_error - transmit_wrench * (m_K.inverse() * adm_force_ee));
+        des_velocity_ang = -K_ori_1st_order * (ori_error - transmit_wrench * (m_K_orientation.inverse() * adm_torque_ee));
+    }
+
+    // Apply velocity limits
+    Eigen::Vector3d des_sat_vel_lin = applySmoothSaturation(des_velocity_lin, MAX_LIN_VEL);
+    Eigen::Vector3d des_sat_vel_ang = applySmoothSaturation(des_velocity_ang, MAX_ANG_VEL);
+
+    Eigen::Matrix<double, 6, 1> des_sat_vel;
+    des_sat_vel << des_sat_vel_lin, des_sat_vel_ang;
+
+    return des_sat_vel;
 }
 
 // -------------------- moveToStartingPose -------------------- //
@@ -143,9 +345,8 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
         // Get initial robot state
         auto states = robot_->states();
 
-        // Initialize pose and velocity
+        // Initialize pose
         std::array<double, 7> target_pose = states.tcp_pose;
-        std::array<double,7> initial_pose = target_pose;
 
         // Timing statistics
         double max_loop_time = 0.0;
@@ -169,34 +370,46 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             states = robot_->states();
 
             Eigen::Vector3d currentPosition(states.tcp_pose[0], states.tcp_pose[1], states.tcp_pose[2]);
+            Eigen::Vector4d currentOrientation(states.tcp_pose[3], states.tcp_pose[4], states.tcp_pose[5], states.tcp_pose[6]);
 
-            Eigen::Vector3d m_currentVelocity(states.tcp_vel[0], states.tcp_vel[1], states.tcp_vel[2]);
+            Eigen::Vector3d currentLinVelocity(states.tcp_vel[0], states.tcp_vel[1], states.tcp_vel[2]);
+            Eigen::Vector3d currentAngVelocity(states.tcp_vel[3], states.tcp_vel[4], states.tcp_vel[5]);
 
             Eigen::Vector3d measuredForce(-states.ext_wrench_in_tcp[0],states.ext_wrench_in_tcp[1], -states.ext_wrench_in_tcp[2]);
+            Eigen::Vector3d measuredTorque(states.ext_wrench_in_tcp[3],states.ext_wrench_in_tcp[4], states.ext_wrench_in_tcp[5]);
 
             Eigen::Vector3d admittanceForce = applySmoothDeadZone3(measuredForce, m_low_end, m_high_end, m_switchingGain);
+            Eigen::Vector3d admittanceTorque = applySmoothDeadZone3(measuredTorque, m_low_end_torque, m_high_end_torque, m_switchingGain);
 
-            // Compute desired velocity using admittance dynamics
-            Eigen::Vector3d desiredVel = generateMotionDynamics(
+            Eigen::Matrix<double,6,1> des_twist_vel = generateFullMotionDynamics(
                 currentPosition,
-                m_currentVelocity,
+                currentOrientation,
+                currentLinVelocity,
+                currentAngVelocity,
                 admittanceForce,
-                controlTimestep);
+                admittanceTorque,
+                controlTimestep
+            );
 
+            Eigen::Vector3d desiredLinVel = des_twist_vel.head<3>();
+            Eigen::Vector3d desiredAngVel = des_twist_vel.tail<3>();  
 
             // Integrate velocity from previous commanded target (not current measured position)
-            Eigen::Vector3d previousTarget(target_pose[0], target_pose[1], target_pose[2]);
-            Eigen::Vector3d nextPosition = previousTarget + desiredVel * controlTimestep;
+            Eigen::Vector3d targetPose(target_pose[0], target_pose[1], target_pose[2]);
+            targetPose = targetPose + desiredLinVel * controlTimestep;
 
-            target_pose[0] = nextPosition.x();
-            target_pose[1] = nextPosition.y();
-            target_pose[2] = nextPosition.z();
+            Eigen::Vector4d targetOrientation(target_pose[3], target_pose[4], target_pose[5], target_pose[6]);
+            targetOrientation = integrate_orientation_dynamics(controlTimestep, targetOrientation, desiredAngVel);
 
-            // Keep orientation unchanged (qw, qx, qy, qz)
-            target_pose[3] = initial_pose[3];
-            target_pose[4] = initial_pose[4];
-            target_pose[5] = initial_pose[5];
-            target_pose[6] = initial_pose[6];
+            target_pose[0] = targetPose.x();
+            target_pose[1] = targetPose.y();
+            target_pose[2] = targetPose.z();
+
+            // Update orientation (qw, qx, qy, qz)
+            target_pose[3] = targetOrientation[0];
+            target_pose[4] = targetOrientation[1];
+            target_pose[5] = targetOrientation[2];
+            target_pose[6] = targetOrientation[3];
 
             // Send command to robot with high limits to avoid built-in interference
             robot_->SendCartesianMotionForce(
@@ -210,7 +423,7 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
 
             // Update commanded values for logging
             setCommandedTcpPose(target_pose);
-            setCommandedTcpVel({desiredVel.x(), desiredVel.y(), desiredVel.z(), 0.0, 0.0, 0.0});
+            setCommandedTcpVel({desiredLinVel.x(), desiredLinVel.y(), desiredLinVel.z(), desiredAngVel.x(), desiredAngVel.y(), desiredAngVel.z()});
 
             // Measure iteration time (before sleep)
             auto iteration_end = std::chrono::steady_clock::now();
@@ -261,7 +474,7 @@ void AdmittanceTest::performTest()
             LogField::CMD_TCP_VEL       // Commanded TCP velocity (6 values)
         };
 
-        std::vector<uint16_t> intervals = { 5, 25, 50, 75, 100};
+        std::vector<uint16_t> intervals = {10};
 
         auto runPhase = [&](uint16_t intervalMs) -> bool {
             if (stopRequested_) return false;

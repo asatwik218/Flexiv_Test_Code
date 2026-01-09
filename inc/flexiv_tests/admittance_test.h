@@ -25,7 +25,11 @@ public:
         const std::array<double, 6>& endPose_mm_deg,
         double pos_m,
         double pos_k,
-        const std::array<double, 3>& high_end);
+        double ori_m,
+        double ori_k,
+        const std::array<double, 3>& high_end,
+        const std::array<double, 3>& high_end_torque
+    );
 
     ~AdmittanceTest() override = default;
 
@@ -54,7 +58,22 @@ private:
         const Eigen::Vector3d& cur_position,
         const Eigen::Vector3d& cur_lin_vel_ee,
         const Eigen::Vector3d& adm_force_ee,
-        double dt) const;
+        double dt,
+        bool is_second_order = true
+    ) const;
+
+    Eigen::Matrix<double, 6, 1> generateFullMotionDynamics(
+        const Eigen::Vector3d& cur_position,
+        const Eigen::Vector4d& cur_orientation,
+        const Eigen::Vector3d& cur_lin_vel_ee,
+        const Eigen::Vector3d& cur_ang_vel_ee,
+        const Eigen::Vector3d& adm_force_ee,
+        const Eigen::Vector3d& adm_torque_ee,
+        double dt,
+        bool is_second_order = true,
+        double MAX_LIN_VEL = 0.1,
+        double MAX_ANG_VEL = 0.8
+    ) const;
 
 private:
     // Member variables (m_ prefix)
@@ -67,20 +86,32 @@ private:
     // Scalar gains (virtual mass, stiffness, damping)
     double m_pos_m = 1.0;
     double m_pos_k = 50.0;
-    double m_pos_d = 0.0;
+    double m_pos_d = 2.0 * std::sqrt(m_pos_m * m_pos_k);
+    double m_ori_m = 1.0;
+    double m_ori_k = 50.0;
+    double m_ori_d = 2.0 * std::sqrt(m_ori_m * m_ori_k);
+
 
     // Gain matrices (direct members instead of map for better performance)
     Eigen::Matrix3d m_K;      // Stiffness matrix
     Eigen::Matrix3d m_D;      // Damping matrix
     Eigen::Matrix3d m_InvM;   // Inverse mass matrix
 
+    //Gain matrices for orientations
+    Eigen::Matrix3d m_K_orientation;      // Stiffness matrix
+    Eigen::Matrix3d m_D_orientation;      // Damping matrix
+    Eigen::Matrix3d m_InvM_orientation;   // Inverse mass matrix
+
+
     // Admittance force thresholds (Eigen vectors)
     Eigen::Vector3d m_high_end = Eigen::Vector3d::Zero();
     Eigen::Vector3d m_low_end  = Eigen::Vector3d::Zero();
+    Eigen::Vector3d m_high_end_torque = Eigen::Vector3d::Zero();
+    Eigen::Vector3d m_low_end_torque  = Eigen::Vector3d::Zero();
 
-    // Desired/equilibrium position (m) and current velocity (m/s)
+    // Desired/equilibrium position (m) and desired orientation in quaternion (w,x,y,z)
     Eigen::Vector3d m_desiredPosition = Eigen::Vector3d::Zero();
-    Eigen::Vector3d m_currentVelocity = Eigen::Vector3d::Zero();
+    Eigen::Vector4d m_desiredOrientation = Eigen::Vector4d::Zero();
 
     // Runtime parameters (tune as needed)
     double m_switchingGain = 100.0;
