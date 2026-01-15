@@ -3,6 +3,7 @@
   #include <windows.h>
   #include <mmsystem.h>
 #endif
+
 // Constructor
 AdmittanceTest::AdmittanceTest(
     const std::string& robotSn,
@@ -194,8 +195,6 @@ inline Eigen::Quaterniond eulerZYX_to_quat(double yaw, double pitch, double roll
     return q;
 }
 
-
-
 Eigen::Vector3d AdmittanceTest::generateMotionDynamics(
     const Eigen::Vector3d& cur_position,
     const Eigen::Vector3d& cur_lin_vel_ee,
@@ -376,11 +375,13 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             Eigen::Vector3d currentAngVelocity(states.tcp_vel[3], states.tcp_vel[4], states.tcp_vel[5]);
 
             Eigen::Vector3d measuredForce(-states.ext_wrench_in_tcp[0],states.ext_wrench_in_tcp[1], -states.ext_wrench_in_tcp[2]);
-            Eigen::Vector3d measuredTorque(states.ext_wrench_in_tcp[3],states.ext_wrench_in_tcp[4], states.ext_wrench_in_tcp[5]);
+            Eigen::Vector3d measuredTorque(states.ext_wrench_in_tcp[3],states.ext_wrench_in_tcp[4], 10*states.ext_wrench_in_tcp[5]);
 
             Eigen::Vector3d admittanceForce = applySmoothDeadZone3(measuredForce, m_low_end, m_high_end, m_switchingGain);
             Eigen::Vector3d admittanceTorque = applySmoothDeadZone3(measuredTorque, m_low_end_torque, m_high_end_torque, m_switchingGain);
-
+            
+            // std::cout<< admittanceTorque[0] << "," << admittanceTorque[1] << "," << admittanceTorque[2] <<"\n";
+            
             Eigen::Matrix<double,6,1> des_twist_vel = generateFullMotionDynamics(
                 currentPosition,
                 currentOrientation,
@@ -415,7 +416,7 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             robot_->SendCartesianMotionForce(
                 target_pose,
                 {}, // no extra force
-                {}, // no extra torque
+                {}, // no extra velocity
                 m_maxLinearVel,
                 m_maxAngularVel,
                 m_maxLinearAcc,
@@ -474,7 +475,7 @@ void AdmittanceTest::performTest()
             LogField::CMD_TCP_VEL       // Commanded TCP velocity (6 values)
         };
 
-        std::vector<uint16_t> intervals = {10};
+        std::vector<uint16_t> intervals = {20};
 
         auto runPhase = [&](uint16_t intervalMs) -> bool {
             if (stopRequested_) return false;

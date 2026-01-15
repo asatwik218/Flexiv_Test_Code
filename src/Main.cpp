@@ -11,13 +11,19 @@
 #include <thread>
 #include <chrono>
 #include <array>
+#include <iomanip>
+
+#include <flexiv/rdk/robot.hpp>
+#include <flexiv/rdk/model.hpp>
+#include <flexiv/rdk/utility.hpp>
+ 
 
 int main()
 {
     std::cout << "===== Flexiv Payload Test =====\n";
 
     // Example robot serial number
-    std::string robotSn = "Rizon4s-063157";
+    std::string robotSn = "Rizon10s-062287";
 
 /* STEP SENSING TEST (example, currently not used) */
 
@@ -70,16 +76,16 @@ int main()
     double pos_m = 1.0;                                      // Virtual mass [kg]
     double pos_k = 50.0;                                     // Stiffness [N/m]   
     double ori_m = 1.0;                                      // Virtual mass [kg]
-    double ori_k = 50.0;                                     // Stiffness [N/m]   
+    double ori_k = 40.0;                                     // Stiffness [N/m]   
     const std::array<double,3> high_end ={1, 1, 1};        // High force threshold [N]
-    const std::array<double,3> high_end_torque ={0.2, 0.2, 0.2};        // High torque threshold [N/m]
+    const std::array<double,3> high_end_torque ={0.05, 0.05, 0.05};        // High torque threshold [N/m]
     bool isAdmittance = true;                                // Enable force feedback
-    uint16_t testDuration = 120;                             // Test duration [s] per interval
+    uint16_t testDuration = 500;                             // Test duration [s] per interval
     AdmittanceTest test(robotSn,
                         isAdmittance,
                         testDuration,
-                        std::array<double,6>{-221,-576,90, 0.0, 180.0, 0.0},
-                        std::array<double,6>{-221, -576, 250, 0.0, 180.0, 0.0},
+                        std::array<double,6>{604,-378, 120, 0.0, 180.0, 0.0},
+                        std::array<double,6>{604,-378, 220, 0.0, 180.0, 45.0},
                         pos_m,
                         pos_k,
                         ori_m,

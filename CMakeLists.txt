@@ -30,6 +30,7 @@ endif()
 # Find Flexiv RDK package
 find_package(flexiv_rdk REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(spdlog REQUIRED)
 
 # ----------------------------------------------------------
 # Gather source files
@@ -54,6 +55,7 @@ target_link_libraries( Flexiv_Test_Bed
     PRIVATE
         flexiv::rdk          # public headers depend on flexiv
         Eigen3::Eigen 
+        spdlog::spdlog
 )
 
 # Link Windows system library only when building on Windows

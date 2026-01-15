@@ -72,7 +72,7 @@ private:
         double dt,
         bool is_second_order = true,
         double MAX_LIN_VEL = 0.1,
-        double MAX_ANG_VEL = 0.8
+        double MAX_ANG_VEL = 1.6
     ) const;
 
 private:
