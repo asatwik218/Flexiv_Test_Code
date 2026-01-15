@@ -24,7 +24,11 @@ enum class LogField {
     // Commanded values (for tests that track commands)
     CMD_TCP_POSE,       // 7 values: commanded TCP pose
     CMD_TCP_VEL,        // 6 values: commanded TCP velocity
-    CMD_JOINT_POS       // 7 values: commanded joint positions
+    CMD_JOINT_POS,      // 7 values: commanded joint positions
+
+    // Error values (for admittance and impedance control)
+    POSE_ERROR,         // 3 values: position error (x, y, z) in meters
+    ORI_ERROR           // 3 values: orientation error (ex, ey, ez) in radians
 };
 
 class FlexivRobotTest : public ITest{
@@ -55,6 +59,8 @@ protected:
     std::array<double, 7> cmdTcpPose_{};      // Commanded TCP pose (optional)
     std::array<double, 6> cmdTcpVel_{};       // Commanded TCP velocity (optional)
     std::vector<double> cmdJointPos_;         // Commanded joint positions (optional)
+    std::array<double, 3> poseError_{};       // Position error (optional)
+    std::array<double, 3> oriError_{};        // Orientation error (optional)
 
     virtual void performTest() = 0;
 
@@ -72,6 +78,10 @@ protected:
     void setCommandedTcpPose(const std::array<double, 7>& pose);
     void setCommandedTcpVel(const std::array<double, 6>& vel);
     void setCommandedJointPos(const std::vector<double>& pos);
+
+    // Set error values for logging (optional - only used if *_ERROR fields are selected)
+    void setPoseError(const std::array<double, 3>& error);
+    void setOriError(const std::array<double, 3>& error);
 
     // Utility functions for unit conversions
     static double mmToM(double mm);

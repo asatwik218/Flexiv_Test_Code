@@ -451,6 +451,18 @@ void FlexivRobotTest::setCommandedJointPos(const std::vector<double>& pos)
     cmdJointPos_ = pos;
 }
 
+void FlexivRobotTest::setPoseError(const std::array<double, 3>& error)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    poseError_ = error;
+}
+
+void FlexivRobotTest::setOriError(const std::array<double, 3>& error)
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    oriError_ = error;
+}
+
 void FlexivRobotTest::logSelectedFields(std::ostream& out)
 {
     for (size_t i = 0; i < logFields_.size(); ++i) {
@@ -491,6 +503,12 @@ void FlexivRobotTest::writeFieldHeaders(std::ostream& out, LogField field)
             break;
         case LogField::CMD_JOINT_POS:
             out << "cmd_joint_pos_1,cmd_joint_pos_2,cmd_joint_pos_3,cmd_joint_pos_4,cmd_joint_pos_5,cmd_joint_pos_6,cmd_joint_pos_7";
+            break;
+        case LogField::POSE_ERROR:
+            out << "pose_error_x,pose_error_y,pose_error_z";
+            break;
+        case LogField::ORI_ERROR:
+            out << "ori_error_ex,ori_error_ey,ori_error_ez";
             break;
     }
 }
@@ -533,6 +551,12 @@ void FlexivRobotTest::writeFieldValues(std::ostream& out, LogField field) const
             } else {
                 out << "0,0,0,0,0,0,0";  // Default if not set
             }
+            break;
+        case LogField::POSE_ERROR:
+            out << flexiv::rdk::utility::Arr2Str(poseError_, 5, ",");
+            break;
+        case LogField::ORI_ERROR:
+            out << flexiv::rdk::utility::Arr2Str(oriError_, 5, ",");
             break;
     }
 }

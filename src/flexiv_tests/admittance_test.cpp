@@ -244,6 +244,10 @@ Eigen::Matrix<double, 6, 1> AdmittanceTest::generateFullMotionDynamics(
     Eigen::Vector3d pos_error = cur_position - m_desiredPosition;
     Eigen::Vector3d ori_error = ori_error_from_quat(cur_orientation, m_desiredOrientation);
 
+    // Store errors for logging
+    m_lastPosError = pos_error;
+    m_lastOriError = ori_error;
+
     double transmit_wrench = m_isAdmittance ? 1.0 : 0.0;
 
     Eigen::Vector3d des_velocity_lin     = Eigen::Vector3d::Zero();
@@ -422,9 +426,11 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
                 m_maxLinearAcc,
                 m_maxAngularAcc);
 
-            // Update commanded values for logging
+            // Update commanded values and errors for logging
             setCommandedTcpPose(target_pose);
             setCommandedTcpVel({desiredLinVel.x(), desiredLinVel.y(), desiredLinVel.z(), desiredAngVel.x(), desiredAngVel.y(), desiredAngVel.z()});
+            setPoseError({m_lastPosError.x(), m_lastPosError.y(), m_lastPosError.z()});
+            setOriError({m_lastOriError.x(), m_lastOriError.y(), m_lastOriError.z()});
 
             // Measure iteration time (before sleep)
             auto iteration_end = std::chrono::steady_clock::now();
@@ -472,7 +478,9 @@ void AdmittanceTest::performTest()
             LogField::TCP_POSE,         // Measured TCP pose (7 values)
             LogField::TCP_VEL,          // Measured TCP velocity (6 values)
             LogField::CMD_TCP_POSE,     // Commanded TCP pose (7 values)
-            LogField::CMD_TCP_VEL       // Commanded TCP velocity (6 values)
+            LogField::CMD_TCP_VEL,      // Commanded TCP velocity (6 values)
+            LogField::POSE_ERROR,       // Position error (3 values)
+            LogField::ORI_ERROR         // Orientation error (3 values)
         };
 
         std::vector<uint16_t> intervals = {20};
