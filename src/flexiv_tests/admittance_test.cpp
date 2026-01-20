@@ -1,4 +1,5 @@
 #include "flexiv_tests/admittance_test.h"
+#include "core/simple_logger.h"
 #ifdef _WIN32
   #include <windows.h>
   #include <mmsystem.h>
@@ -241,12 +242,9 @@ Eigen::Matrix<double, 6, 1> AdmittanceTest::generateFullMotionDynamics(
         double MAX_ANG_VEL
     ) const {
 
-    Eigen::Vector3d pos_error = cur_position - m_desiredPosition;
-    Eigen::Vector3d ori_error = ori_error_from_quat(cur_orientation, m_desiredOrientation);
-
-    // Store errors for logging
-    m_lastPosError = pos_error;
-    m_lastOriError = ori_error;
+    // Update member error variables
+    m_posError = cur_position - m_desiredPosition;
+    m_oriError = ori_error_from_quat(cur_orientation, m_desiredOrientation);
 
     double transmit_wrench = m_isAdmittance ? 1.0 : 0.0;
 
@@ -257,20 +255,25 @@ Eigen::Matrix<double, 6, 1> AdmittanceTest::generateFullMotionDynamics(
 
     if (is_second_order) {
         // Compute stiffness force and moment
-        Eigen::Vector3d stiffness_force  = m_K * pos_error;
-        Eigen::Vector3d stiffness_torque = m_K_orientation * ori_error;
+        Eigen::Vector3d stiffness_force  = m_K * m_posError;
+        Eigen::Vector3d stiffness_torque = m_K_orientation * m_oriError;
+
         // Compute equivalent desired velocity (when looking at the 2nd order admittance as a velocity following dynamics)
         Eigen::Vector3d equival_des_lin_vel = -m_D.inverse() * (stiffness_force  - transmit_wrench * adm_force_ee);
         Eigen::Vector3d equival_des_ang_vel = -m_D_orientation.inverse() * (stiffness_torque - transmit_wrench * adm_torque_ee);
+
         // Apply velocity limits to yield acceleration that is consistent with the velocity limits
         Eigen::Vector3d sat_equival_des_lin_vel = applySmoothSaturation(equival_des_lin_vel, MAX_LIN_VEL);
         Eigen::Vector3d sat_equival_des_ang_vel = applySmoothSaturation(equival_des_ang_vel, MAX_ANG_VEL);
+
         // Compute the equivalent damping force and moment
         Eigen::Vector3d equival_damping_force  = m_D * (cur_lin_vel_ee - sat_equival_des_lin_vel);
         Eigen::Vector3d equival_damping_torque = m_D_orientation * (cur_ang_vel_ee - sat_equival_des_ang_vel);
+
         // Compute desired acceleration
         des_acceleration_lin = -m_InvM * equival_damping_force;
         des_acceleration_ang = -m_InvM_orientation * equival_damping_torque;
+
         // Compute desired velocity
         des_velocity_lin = cur_lin_vel_ee + des_acceleration_lin * dt;
         des_velocity_ang = cur_ang_vel_ee + des_acceleration_ang * dt;
@@ -283,9 +286,10 @@ Eigen::Matrix<double, 6, 1> AdmittanceTest::generateFullMotionDynamics(
         Eigen::Matrix3d K_pos_1st_order = K_pos_diag.asDiagonal();
         Eigen::Vector3d K_ori_diag = InvM_oriK.diagonal().cwiseSqrt();
         Eigen::Matrix3d K_ori_1st_order = K_ori_diag.asDiagonal();
+
         // Compute desired velocity
-        des_velocity_lin = -K_pos_1st_order * (pos_error - transmit_wrench * (m_K.inverse() * adm_force_ee));
-        des_velocity_ang = -K_ori_1st_order * (ori_error - transmit_wrench * (m_K_orientation.inverse() * adm_torque_ee));
+        des_velocity_lin = -K_pos_1st_order * (m_posError - transmit_wrench * (m_K.inverse() * adm_force_ee));
+        des_velocity_ang = -K_ori_1st_order * (m_oriError - transmit_wrench * (m_K_orientation.inverse() * adm_torque_ee));
     }
 
     // Apply velocity limits
@@ -311,8 +315,8 @@ void AdmittanceTest::moveToStartingPose()
     robot_->SetForceControlAxis({false, false, false, false, false, false});
 
     // convertPose_mmDeg_to_mQuat is assumed provided by your base/helpers
-    auto target_pose_m_quat = convertPose_mmDeg_to_mQuat(m_startingPose_mm_deg);
-    robot_->SendCartesianMotionForce(target_pose_m_quat, {}, {}, 0.08);
+    auto desired_pose_m_quat = convertPose_mmDeg_to_mQuat(m_startingPose_mm_deg);
+    robot_->SendCartesianMotionForce(desired_pose_m_quat, {}, {}, 0.08);
 
     // Wait until starting pose is reached
     while (!isCartesianPoseReached(m_startingPose_mm_deg, {true, true, true, false, false, false})) {
@@ -333,14 +337,30 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
 {
     const double controlTimestep = static_cast<double>(streamIntervalMs) / 1000.0;
 
-    std::cout << "[AdmittanceTest] Starting admittance control loop ("
-              << (1000.0 / streamIntervalMs) << " Hz, " << streamIntervalMs << " ms interval)\n";
+    std::cout << "[AdmittanceTest] Starting admittance control loop ("<< (1000.0 / streamIntervalMs) << " Hz, " << streamIntervalMs << " ms interval)\n";
 
 #ifdef _WIN32
     timeBeginPeriod(1);
 #endif
 
     try {
+        // Setup SimpleLogger
+        SimpleLogger log("logs/AdmittanceTest/admittance_" + std::to_string(streamIntervalMs) + "ms.csv");
+        log.header(
+            "cur_pos_x(m),cur_pos_y(m),cur_pos_z(m),"                                                                        // currentPosition (3)
+            "pos_err_x(m),pos_err_y(m),pos_err_z(m),"                                                                        // pos_error (3)
+            "cur_ori_qw,cur_ori_qx,cur_ori_qy,cur_ori_qz,"                                                                   // currentOrientation (4)
+            "ori_err_x(rad),ori_err_y(rad),ori_err_z(rad),"                                                                  // ori_error (3)
+            "meas_force_x(N),meas_force_y(N),meas_force_z(N),"                                                               // measuredForce (3)
+            "adm_force_x(N),adm_force_y(N),adm_force_z(N),"                                                                  // admittanceForceInput (3)
+            "meas_torque_x(Nm),meas_torque_y(Nm),meas_torque_z(Nm),"                                                         // measuredTorque (3)
+            "adm_torque_x(Nm),adm_torque_y(Nm),adm_torque_z(Nm),"                                                            // admittanceTorqueInput (3)
+            "cur_lin_vel_x(m/s),cur_lin_vel_y(m/s),cur_lin_vel_z(m/s),"                                                      // currentLinVelocity (3)
+            "cur_ang_vel_x(rad/s),cur_ang_vel_y(rad/s),cur_ang_vel_z(rad/s),"                                                // currentAngVelocity (3)
+            "des_vel_x(m/s),des_vel_y(m/s),des_vel_z(m/s),des_vel_wx(rad/s),des_vel_wy(rad/s),des_vel_wz(rad/s),"            // des_twist_vel (6)
+            "des_pos_x(m),des_pos_y(m),des_pos_z(m),des_pos_qw,des_pos_qx,des_pos_qy,des_pos_qz"                             // desired_pose (7)
+        );
+
         auto loop_start = std::chrono::steady_clock::now();
         auto next_tick = loop_start;
         const auto dt_chrono = std::chrono::milliseconds(streamIntervalMs);
@@ -349,7 +369,7 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
         auto states = robot_->states();
 
         // Initialize pose
-        std::array<double, 7> target_pose = states.tcp_pose;
+        std::array<double, 7> desired_pose = states.tcp_pose;
 
         // Timing statistics
         double max_loop_time = 0.0;
@@ -400,25 +420,25 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             Eigen::Vector3d desiredAngVel = des_twist_vel.tail<3>();  
 
             // Integrate velocity from previous commanded target (not current measured position)
-            Eigen::Vector3d targetPose(target_pose[0], target_pose[1], target_pose[2]);
+            Eigen::Vector3d targetPose(desired_pose[0], desired_pose[1], desired_pose[2]);
             targetPose = targetPose + desiredLinVel * controlTimestep;
 
-            Eigen::Vector4d targetOrientation(target_pose[3], target_pose[4], target_pose[5], target_pose[6]);
+            Eigen::Vector4d targetOrientation(desired_pose[3], desired_pose[4], desired_pose[5], desired_pose[6]);
             targetOrientation = integrate_orientation_dynamics(controlTimestep, targetOrientation, desiredAngVel);
 
-            target_pose[0] = targetPose.x();
-            target_pose[1] = targetPose.y();
-            target_pose[2] = targetPose.z();
+            desired_pose[0] = targetPose.x();
+            desired_pose[1] = targetPose.y();
+            desired_pose[2] = targetPose.z();
 
             // Update orientation (qw, qx, qy, qz)
-            target_pose[3] = targetOrientation[0];
-            target_pose[4] = targetOrientation[1];
-            target_pose[5] = targetOrientation[2];
-            target_pose[6] = targetOrientation[3];
+            desired_pose[3] = targetOrientation[0];
+            desired_pose[4] = targetOrientation[1];
+            desired_pose[5] = targetOrientation[2];
+            desired_pose[6] = targetOrientation[3];
 
             // Send command to robot with high limits to avoid built-in interference
             robot_->SendCartesianMotionForce(
-                target_pose,
+                desired_pose,
                 {}, // no extra force
                 {}, // no extra velocity
                 m_maxLinearVel,
@@ -426,11 +446,20 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
                 m_maxLinearAcc,
                 m_maxAngularAcc);
 
-            // Update commanded values and errors for logging
-            setCommandedTcpPose(target_pose);
-            setCommandedTcpVel({desiredLinVel.x(), desiredLinVel.y(), desiredLinVel.z(), desiredAngVel.x(), desiredAngVel.y(), desiredAngVel.z()});
-            setPoseError({m_lastPosError.x(), m_lastPosError.y(), m_lastPosError.z()});
-            setOriError({m_lastOriError.x(), m_lastOriError.y(), m_lastOriError.z()});
+            // Log data using SimpleLogger
+            log << currentPosition                      // current tcp pose (3)
+                << m_posError                           // pos_error (3)
+                << currentOrientation                   // current tcp orientation (4)
+                << m_oriError                           // ori_error (3)
+                << measuredForce                        // measuredForce (3)
+                << admittanceForce                      // admittanceForceInput (3)
+                << measuredTorque                       // measuredTorque (3)
+                << admittanceTorque                     // admittanceTorqueInput (3)
+                << currentLinVelocity                   // currentLinVelocity (3)
+                << currentAngVelocity                   // currentAngVelocity (3)
+                << des_twist_vel                        // desired_velocities (6)
+                << desired_pose                         // desired_positions (7)
+                << endl;
 
             // Measure iteration time (before sleep)
             auto iteration_end = std::chrono::steady_clock::now();

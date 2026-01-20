@@ -121,7 +121,7 @@ private:
     double m_maxAngularAcc = 100.0;  // [rad/s^2]
 
     // Error tracking (mutable to allow updates from const methods)
-    mutable Eigen::Vector3d m_lastPosError = Eigen::Vector3d::Zero();
-    mutable Eigen::Vector3d m_lastOriError = Eigen::Vector3d::Zero();
+    mutable Eigen::Vector3d m_posError = Eigen::Vector3d::Zero();
+    mutable Eigen::Vector3d m_oriError = Eigen::Vector3d::Zero();
 };
 

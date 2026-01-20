@@ -9,7 +9,8 @@
       "Bash(python:*)",
       "Bash(if not exist raw_data mkdir raw_data)",
       "Bash(move *.csv raw_data )",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(cl /c /EHsc /std:c++17 /I\"inc\" /I\"C:\\\\Users\\\\SatwikAgarwal\\\\CynLr\\\\Design & Dev - Dev\\\\3.User Repos\\\\Satwik\\\\Flexiv\\\\Flexiv_Test_Code\\\\conan-files\" src/core/simple_logger.cpp)"
     ],
     "deny": [],
     "ask": []
