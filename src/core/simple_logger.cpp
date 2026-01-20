@@ -73,6 +73,14 @@ void SimpleLogger::appendValue(double value) {
 }
 
 void SimpleLogger::enqueueRow() {
+    // Don't enqueue if logger is closing
+    if (!running_.load()) {
+        rowBuffer_.str("");
+        rowBuffer_.clear();
+        currentColumnCount_ = 0;
+        return;
+    }
+
     // Ensure start time is set (in case header() was not called)
     if (!startTimeSet_) {
         resetStartTime();
@@ -166,8 +174,8 @@ void SimpleLogger::flush() {
 }
 
 void SimpleLogger::close() {
-    // Check if already closed
-    if (!running_) {
+    // Check if already closed (atomic read is safe)
+    if (!running_.load()) {
         return;
     }
 
@@ -180,8 +188,11 @@ void SimpleLogger::close() {
         currentColumnCount_ = 0;
     }
 
-    // Signal thread to stop
-    running_ = false;
+    // Signal thread to stop (must notify under lock to avoid race)
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        running_ = false;
+    }
     queueCV_.notify_one();
 
     // Wait for thread to finish (it will drain the queue first)
@@ -189,14 +200,14 @@ void SimpleLogger::close() {
         writerThread_.join();
     }
 
-    // Close file
+    // Close file (safe now - writer thread has exited)
     if (file_.is_open()) {
         file_.close();
     }
 }
 
 bool SimpleLogger::isOpen() const {
-    return file_.is_open() && running_;
+    return file_.is_open() && running_.load();
 }
 
 std::size_t SimpleLogger::rowCount() const {

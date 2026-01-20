@@ -502,21 +502,11 @@ void AdmittanceTest::performTest()
         std::cout << "  ADMITTANCE TEST - Real Force Feedback\n";
         std::cout << "========================================\n\n";
 
-        std::vector<LogField> fieldsToLog = {
-            LogField::EXT_WRENCH_TCP,   // External force/torque in TCP frame (6 values)
-            LogField::TCP_POSE,         // Measured TCP pose (7 values)
-            LogField::TCP_VEL,          // Measured TCP velocity (6 values)
-            LogField::CMD_TCP_POSE,     // Commanded TCP pose (7 values)
-            LogField::CMD_TCP_VEL,      // Commanded TCP velocity (6 values)
-            LogField::POSE_ERROR,       // Position error (3 values)
-            LogField::ORI_ERROR         // Orientation error (3 values)
-        };
-
         std::vector<uint16_t> intervals = {20};
 
         auto runPhase = [&](uint16_t intervalMs) -> bool {
             if (stopRequested_) return false;
-            
+
             // Zero FT sensor to eliminate bias from tool weight
             std::cout << "[AdmittanceTest] Zeroing force/torque sensor...\n";
             ZeroFTSensor();
@@ -531,27 +521,11 @@ void AdmittanceTest::performTest()
             std::this_thread::sleep_for(std::chrono::seconds(3));
             if (stopRequested_) return false;
 
-            // Start logging
-            std::string filename = "admittance_test_interval_" + std::to_string(intervalMs) + "ms.csv";
-            std::cout << "[AdmittanceTest] Starting data logging: " << filename << "\n";
-            startLogging(filename, fieldsToLog, 1);  // Always log at 1ms interval
-
-            //
             robot_->SwitchMode(flexiv::rdk::Mode::NRT_CARTESIAN_MOTION_FORCE);
             robot_->SetForceControlAxis({ false , false , false , false ,false ,false });
 
-            // Run admittance control loop
-            try {
-                admittanceControlLoop(intervalMs);
-            }
-            catch (...) {
-                stopLogging();
-                throw;
-            }
-
-            // Stop logging
-            stopLogging();
-            std::cout << "[AdmittanceTest] Data logging stopped\n";
+            // Run admittance control loop (logging handled by SimpleLogger inside)
+            admittanceControlLoop(intervalMs);
 
             std::this_thread::sleep_for(std::chrono::seconds(5));
             return !stopRequested_;
