@@ -398,8 +398,8 @@ void AdmittanceTest::admittanceControlLoop(uint16_t streamIntervalMs)
             Eigen::Vector3d currentLinVelocity(states.tcp_vel[0], states.tcp_vel[1], states.tcp_vel[2]);
             Eigen::Vector3d currentAngVelocity(states.tcp_vel[3], states.tcp_vel[4], states.tcp_vel[5]);
 
-            Eigen::Vector3d measuredForce(-states.ext_wrench_in_tcp[0],states.ext_wrench_in_tcp[1], -states.ext_wrench_in_tcp[2]);
-            Eigen::Vector3d measuredTorque(states.ext_wrench_in_tcp[3],states.ext_wrench_in_tcp[4], 10*states.ext_wrench_in_tcp[5]);
+            Eigen::Vector3d measuredForce(states.ext_wrench_in_world[0],states.ext_wrench_in_world[1], states.ext_wrench_in_world[2]);
+            Eigen::Vector3d measuredTorque(states.ext_wrench_in_world[3],states.ext_wrench_in_world[4], 10*states.ext_wrench_in_world[5]);
 
             Eigen::Vector3d admittanceForce = applySmoothDeadZone3(measuredForce, m_low_end, m_high_end, m_switchingGain);
             Eigen::Vector3d admittanceTorque = applySmoothDeadZone3(measuredTorque, m_low_end_torque, m_high_end_torque, m_switchingGain);

@@ -72,3 +72,31 @@ set_target_properties(Flexiv_Test_Bed PROPERTIES
   CXX_STANDARD 17
   CXX_STANDARD_REQUIRED ON
 )
+
+# ----------------------------------------------------------
+# Build the admittance DLL
+# ----------------------------------------------------------
+add_library(admittance SHARED
+  ${SRC_DIR}/admittance_c_api.cpp
+  ${SRC_DIR}/core/simple_logger.cpp
+)
+
+# Define export macro for DLL
+target_compile_definitions(admittance PRIVATE ADMITTANCE_DLL_EXPORTS)
+
+target_include_directories(admittance PRIVATE ${INC_DIR})
+
+target_link_libraries(admittance
+  PRIVATE
+    Eigen3::Eigen
+)
+
+set_target_properties(admittance PROPERTIES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED ON
+  OUTPUT_NAME "admittance"
+  # Ensure .dll goes to bin and .lib goes to lib on Windows
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+  ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+)
